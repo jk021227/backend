@@ -77,6 +77,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=secret_key,
+    same_site="none",
+    https_only=True
+)
+
 """
 @brief initializes OAuth for user authentication with Auth0.
 """
