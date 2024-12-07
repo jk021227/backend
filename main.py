@@ -62,7 +62,7 @@ ingredients_collection = db.get_collection("ingredients")
 """
 @brief hardcoded urls
 """
-frontend_url = "https://lionfish-app-hldzt.ondigitalocean.app"
+frontend_url = "https://legallychemie.com"
 api_url = "https://sea-turtle-app-akcpx.ondigitalocean.app"
 
 """
