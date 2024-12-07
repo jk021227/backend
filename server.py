@@ -103,6 +103,10 @@ oauth.register(
 @return redirects to the Auth0 authorization url.
 """
 
+@app.get("/")
+async def hello():
+    return {"message": "Hello World"}
+
 
 @app.get("/login")
 async def login(request: Request):
