@@ -108,9 +108,10 @@ async def health_check():
 
 @app.get("/login")
 async def login(request: Request):
-    # redirect_uri = request.url_for("callback")
+    redirect_uri = request.url_for("callback")
+    redirect_uri = redirect_uri.replace(scheme="https")
     redirect_uri = request.url_for("callback", _scheme="https", _external=True)
-    return await oauth.auth0.authorize_redirect(request, redirect_uri)
+    return await oauth.auth0.authorize_redirect(request, str(redirect_uri))
 
 
 """
