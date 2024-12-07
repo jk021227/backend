@@ -104,8 +104,8 @@ oauth.register(
 """
 
 @app.get("/")
-async def hello():
-    return {"message": "Hello World"}
+async def health_check():
+    return {"status": "healthy"}
 
 
 @app.get("/login")
