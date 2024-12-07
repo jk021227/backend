@@ -16,7 +16,7 @@ from ratings import CommunityRatingsManager
 
 
 """
-@file server.py
+@file main.py
 @brief FastAPI server for managing user authentication, product information, and rules.
 
 @details

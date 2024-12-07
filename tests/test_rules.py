@@ -2,7 +2,7 @@
 # NEEDS TO BE FIXED CHECK LATER
 # tests/test_rules.py
 from fastapi.testclient import TestClient
-from server import app
+from main import app
 
 client = TestClient(app)
 
