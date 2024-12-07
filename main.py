@@ -62,10 +62,8 @@ ingredients_collection = db.get_collection("ingredients")
 """
 @brief hardcoded urls
 """
-frontend_url = "http://localhost:3000"
-api_url = "http://localhost:8000"
-# api_port = 8000
-# api_host = "legallychemie.onrender.com"
+frontend_url = "https://lionfish-app-hldzt.ondigitalocean.app/"
+api_url = "https://sea-turtle-app-akcpx.ondigitalocean.app/"
 
 """
 @brief configures CORS to allow requests from the React frontend.
