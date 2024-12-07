@@ -62,8 +62,8 @@ ingredients_collection = db.get_collection("ingredients")
 """
 @brief hardcoded urls
 """
-frontend_url = "https://lionfish-app-hldzt.ondigitalocean.app/"
-api_url = "https://sea-turtle-app-akcpx.ondigitalocean.app/"
+frontend_url = "https://lionfish-app-hldzt.ondigitalocean.app"
+api_url = "https://sea-turtle-app-akcpx.ondigitalocean.app"
 
 """
 @brief configures CORS to allow requests from the React frontend.
@@ -749,8 +749,5 @@ async def get_community_ratings(day: str, product_id: str):
 
     return {"communityRatings": community_ratings}
 
-
-# if __name__ == "__main__":
-#     uvicorn.run(app, host=api_host, log_level="info")
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", log_level="info")
