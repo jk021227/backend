@@ -9,11 +9,8 @@ from authlib.integrations.starlette_client import OAuth
 from fastapi.responses import RedirectResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-from pprint import pprint
 import uvicorn
 import os
-from ratings import CommunityRatingsManager
-
 
 """
 @file main.py
@@ -145,6 +142,9 @@ async def callback(request: Request):
     print("Given Name: ", given_name)
     print("User ID: ", user_id)
 
+    if given_name == None:
+        given_name = user_info.get("nickname")
+
     request.session["user_id"] = user_id
     print("Session after saving token:", request.session)
 
@@ -209,7 +209,6 @@ async def logout(request: Request):
 @return JSONResponse with user data or an error if the user is not authenticated.
 """
 
-
 @app.get("/session")
 async def session(request: Request):
     user = request.session.get("user")
@@ -217,35 +216,6 @@ async def session(request: Request):
         return JSONResponse(content={"user": user})
     else:
         return JSONResponse(content={"error": "Not authenticated"}, status_code=401)
-
-
-# function to give product that rating from the user
-@app.patch("/{rating}/{product_id}")
-async def setting_rating(rating: str, product_id: str, request: Request):
-    print("inside rating function")
-    print("this is the rating: ", rating)
-    user = request.session.get("user")
-    user_info = user.get("userinfo", {})
-    user_id = user_info.get("sub")
-
-    if not user_id:
-        raise HTTPException(status_code=401, detail="User ID not found in session")
-
-    user_doc = users_collection.find_one({"auth0_id": user_id})
-
-    if not user_doc:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    update_result = users_collection.update_one(
-        {"auth0_id": user_id}, {"$set": {"rating": rating}}
-    )
-
-    # update the rating for the product for that skin type
-
-    if update_result.modified_count == 0:
-        raise HTTPException(status_code=500, detail="Failed to update rating")
-
-    return {"message": "Rating updated successfully", "rating": rating}
 
 
 @app.get("/{day}/products/{product_id}/rating")
@@ -269,23 +239,49 @@ async def get_product_rating(day: str, product_id: str, request: Request):
         if str(product["_id"]) == product_id:
             product_rating = product.get("rating", 0)
             print("this is the rating: ", product_rating)
-            return {"rating": product_rating}
+        
+            product_doc = products_collection.find_one({"_id": ObjectId(product_id)})
+            if not product_doc:
+                raise HTTPException(status_code=404, detail="Product not found in the product collection")
+            community_rating = product_doc.get("community_rating", {})
+            print("Community rating: ", community_rating)
+
+            averaged_community_rating = {}
+            for skin_type, (rating_sum, rating_count) in community_rating.items():
+                averaged_community_rating[skin_type] = (
+                    rating_sum / rating_count if rating_count > 0 else 0
+                )
+
+            print("Averaged community rating: ", averaged_community_rating)
+
+            return {
+                "user_rating": product_rating,
+                "community_rating": averaged_community_rating,
+            }
 
     raise HTTPException(status_code=404, detail="Product not found in user's routine")
 
 
-@app.patch("/{day}/products/{product_id}/{rating}")
+@app.patch("/{day}/products/{product_id}/{rating}/{old_rating}")
 async def update_product_rating(
-    day: str, product_id: str, rating: int, request: Request
+    day: str, product_id: str, rating: int, old_rating: int, request: Request
 ):
     user = request.session.get("user")
     user_info = user.get("userinfo", {})
     user_id = user_info.get("sub")
 
-    print("my rating being updated to: ", rating)
+    print("My rating being updated to: ", rating)
+    print("Old rating: ", old_rating)
 
     if not user_id:
         raise HTTPException(status_code=401, detail="User ID not found in session")
+    
+    user_doc = users_collection.find_one({"auth0_id": user_id})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found in the user collection")
+    
+    skin_type = user_doc.get("skin_type", "normal")
+    print("User's skin type: ", skin_type)
 
     update_result = users_collection.update_one(
         {"auth0_id": user_id, f"products.{day}._id": ObjectId(product_id)},
@@ -296,6 +292,33 @@ async def update_product_rating(
         raise HTTPException(
             status_code=404, detail="Product not found or rating unchanged"
         )
+
+    product_doc = products_collection.find_one({"_id": ObjectId(product_id)})
+    if not product_doc:
+        raise HTTPException(status_code=404, detail="Product not found in the product collection")
+
+    community_rating = product_doc.get("community_rating", {})
+    rating_sum, rating_count = community_rating.get(skin_type, [0, 0])  # Default values
+
+    rating_sum = rating_sum - old_rating + rating
+
+    # (old_rating == 0 means no previous rating existed)
+    if old_rating == 0:
+        rating_count += 1
+
+    # updating community rating for the skin type
+    community_rating[skin_type] = [rating_sum, rating_count]
+
+    products_collection.update_one(
+        {"_id": ObjectId(product_id)},
+        {
+            "$set": {
+                f"community_rating.{skin_type}": community_rating[skin_type],
+            }
+        },
+    )
+
+    print("Updated community rating: ", community_rating)
 
     return {"message": "Rating updated successfully"}
 
@@ -462,10 +485,6 @@ async def get_user_rules(day: str, request: Request):
         product_rules["usewith"].extend(usewith)
         product_rules["usewhen"].extend(usewhen)
 
-    # print("Product Rules for avoid:", product_rules["avoid"])
-    # print("Product Rules for usewith:", product_rules["usewith"])
-    # print("Product rules for usewhen: ", product_rules["usewhen"])
-
     # convert product IDs to names for output
     product_names = {product["id"]: product["name"] for product in products}
 
@@ -515,9 +534,6 @@ async def get_user_products(day: str, request: Request):
     user = request.session.get("user")
     user_info = user.get("userinfo", {})
     user_id = user_info.get("sub")
-    # print("298this is the user: ")
-    # pprint(user)
-    # print("302this is the user's id: ", user_id)
 
     if not user_id:
         raise HTTPException(status_code=401, detail="User ID not found in session")
@@ -553,7 +569,6 @@ async def get_user_products(day: str, request: Request):
 @param product_input the product input data provided by the user.
 @return a message indicating whether a new or existing product was added.
 """
-
 
 @app.post("/{day}/products/")
 async def create_user_product(day: str, product_input: ProductInput, request: Request):
@@ -603,6 +618,13 @@ async def create_user_product(day: str, product_input: ProductInput, request: Re
         else:
             # add tags for products collections according to ingredients collection
             ingredients = product_data.get("ingredients", [])
+            community_rating = {
+                "oily": [0, 0],         # [rating_sum, rating_count]
+                "dry": [0, 0],
+                "normal": [0, 0],
+                "combination": [0, 0],
+                "sensitive": [0, 0],
+            } # default values
             tags = []
             for i in ingredients:
                 ingredient = i.lower().replace(" ", "")
@@ -611,6 +633,9 @@ async def create_user_product(day: str, product_input: ProductInput, request: Re
                     tags.extend(ingredient_id["categories"])
             tags = list(set(tags))
             product_data["tags"] = tags
+            product_data["community_rating"] = community_rating # adding community rating to the product data
+            print("Product Data:", product_data)
+
 
             # insert products
             inserted_product = products_collection.insert_one(product_data)
@@ -632,7 +657,6 @@ async def create_user_product(day: str, product_input: ProductInput, request: Re
     else:
         raise HTTPException(status_code=404, detail="Product not found")
 
-
 """
 @fn delete_user_product
 @brief deletes a product from a user's product list for a specified time (AM/PM).
@@ -641,7 +665,6 @@ async def create_user_product(day: str, product_input: ProductInput, request: Re
 @param product_id the id of the product to be deleted.
 @return a message indicating successful deletion or an error if the product was not found.
 """
-
 
 @app.delete("/{day}/products/{product_id}")
 async def delete_user_product(day: str, product_id: str, request: Request):
@@ -669,93 +692,6 @@ async def delete_user_product(day: str, product_id: str, request: Request):
         )
 
     return {"message": "Product deleted successfully"}
-
-
-# initialize RatingsManager with the products collection
-community_ratings_manager = CommunityRatingsManager(products_collection)
-
-"""
-@fn add_community_rating
-@brief Adds a community rating for a product based on a user's skin type.
-@param day Time of day ("AM" or "PM").
-@param product_id The ID of the product to be rated.
-@param rating The rating to be given to the product (1-5).
-@param request The HTTP request object.
-@return A message indicating success or an error if the rating could not be added.
-"""
-
-
-@app.patch("/{day}/products/{product_id}/community-rating/{rating}")
-async def add_community_rating(
-    day: str, product_id: str, rating: int, request: Request
-):
-    print("Session Data:", request.session)  # Debugging
-    user = request.session.get("user")
-    user_info = user.get("userinfo", {})
-    user_id = user_info.get("sub")
-
-    if not user_id:
-        raise HTTPException(status_code=401, detail="User ID not found in session")
-
-    user_doc = users_collection.find_one({"auth0_id": user_id})
-    if not user_doc:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    skin_type = user_doc.get("skin_type")
-    if not skin_type:
-        raise HTTPException(status_code=400, detail="User has not set a skin type")
-
-    try:
-        product_id = ObjectId(product_id)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid product ID format")
-
-    if rating < 1 or rating > 5:
-        raise HTTPException(status_code=400, detail="Rating must be between 1 and 5")
-
-    # get action
-    action = community_ratings_manager.add_or_update_rating(
-        product_id, user_id, skin_type, rating
-    )
-
-    if action == "product_not_found":
-        raise HTTPException(status_code=404, detail="Product not found")
-    elif action == "update_failed":
-        raise HTTPException(status_code=500, detail="Failed to update community rating")
-
-    return {
-        "message": f"Community rating {action} successfully",
-        "rating": rating,
-        "skin_type": skin_type,
-        "day": day,
-    }
-
-
-"""
-@fn get_community_ratings
-@brief Retrieves the community ratings for a product by skin type.
-@param day Time of day ("AM" or "PM").
-@param product_id The ID of the product whose community ratings are being retrieved.
-@return A JSON object containing the community ratings by skin type or an error if no ratings exist.
-"""
-
-
-@app.get("/{day}/products/{product_id}/community-ratings")
-async def get_community_ratings(day: str, product_id: str):
-    try:
-        product_id = ObjectId(product_id)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid product ID format")
-
-    community_ratings = community_ratings_manager.get_community_ratings(product_id)
-
-    if not community_ratings:
-        raise HTTPException(
-            status_code=404,
-            detail="Product not found or no community ratings available",
-        )
-
-    return {"communityRatings": community_ratings}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", log_level="info")
